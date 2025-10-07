@@ -1,24 +1,128 @@
-import React, { useState } from 'react';
-import { Users, Plus, Search, Mail, Phone, MapPin, Award } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Users, Plus, Search, Mail, Phone, MapPin, Award, Edit, Trash2, Save, X } from 'lucide-react';
 import { User, Store, Customer } from '../types';
+import { db } from '../services/database';
 
 interface CustomerManagerProps {
   user: User;
   store: Store | null;
 }
 
-const mockCustomers: Customer[] = [
-  { id: '1', name: 'John Smith', email: 'john@email.com', phone: '555-0123', address: '123 Main St', loyaltyPoints: 150, totalPurchases: 2500, registrationDate: '2024-01-15' },
-  { id: '2', name: 'Sarah Wilson', email: 'sarah@email.com', phone: '555-0456', address: '456 Oak Ave', loyaltyPoints: 300, totalPurchases: 5200, registrationDate: '2023-11-20' },
-  { id: '3', name: 'Mike Johnson', email: 'mike@email.com', phone: '555-0789', address: '789 Pine St', loyaltyPoints: 75, totalPurchases: 1200, registrationDate: '2024-03-10' },
-  { id: '4', name: 'Emma Davis', email: 'emma@email.com', phone: '555-0321', address: '321 Elm St', loyaltyPoints: 450, totalPurchases: 8900, registrationDate: '2023-08-05' },
-  { id: '5', name: 'Alex Chen', email: 'alex@email.com', phone: '555-0654', address: '654 Maple Ave', loyaltyPoints: 200, totalPurchases: 3400, registrationDate: '2024-02-28' },
-];
-
 export const CustomerManager: React.FC<CustomerManagerProps> = ({ user, store }) => {
-  const [customers, setCustomers] = useState<Customer[]>(mockCustomers);
+  const [customers, setCustomers] = useState<Customer[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [showAddModal, setShowAddModal] = useState(false);
+  const [editingCustomer, setEditingCustomer] = useState<Customer | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [formData, setFormData] = useState({
+    name: '',
+    email: '',
+    phone: '',
+    address: '',
+    loyalty_points: 0,
+    payment_terms: 'Net 30'
+  });
+
+  useEffect(() => {
+    loadCustomers();
+  }, [store]);
+
+  const loadCustomers = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      const data = await db.customers.getAll(store?.id);
+      setCustomers(data || []);
+    } catch (err: any) {
+      setError(err.message || 'Failed to load customers');
+      console.error('Error loading customers:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleAddCustomer = async () => {
+    if (!formData.name || !formData.phone) {
+      setError('Name and phone are required');
+      return;
+    }
+
+    try {
+      setSaving(true);
+      setError(null);
+      const newCustomer = await db.customers.create({
+        ...formData,
+        store_id: store?.id || '',
+        storeId: store?.id || '',
+        created_at: new Date().toISOString()
+      });
+      setCustomers([...customers, newCustomer]);
+      setShowAddModal(false);
+      resetForm();
+    } catch (err: any) {
+      setError(err.message || 'Failed to add customer');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleUpdateCustomer = async () => {
+    if (!editingCustomer?.id) return;
+
+    try {
+      setSaving(true);
+      setError(null);
+      const updated = await db.customers.update(editingCustomer.id, formData);
+      setCustomers(customers.map(c => c.id === editingCustomer.id ? { ...c, ...updated } : c));
+      setShowAddModal(false);
+      setEditingCustomer(null);
+      resetForm();
+    } catch (err: any) {
+      setError(err.message || 'Failed to update customer');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDeleteCustomer = async (id: string) => {
+    if (!confirm('Are you sure you want to delete this customer?')) return;
+
+    try {
+      setError(null);
+      await db.customers.delete(id);
+      setCustomers(customers.filter(c => c.id !== id));
+    } catch (err: any) {
+      setError(err.message || 'Failed to delete customer');
+    }
+  };
+
+  const handleEditClick = (customer: Customer) => {
+    setEditingCustomer(customer);
+    setFormData({
+      name: customer.name || '',
+      email: customer.email || '',
+      phone: customer.phone || '',
+      address: customer.address || '',
+      loyalty_points: customer.loyaltyPoints || customer.loyalty_points || 0,
+      payment_terms: customer.payment_terms || 'Net 30'
+    });
+    setShowAddModal(true);
+  };
+
+  const resetForm = () => {
+    setFormData({
+      name: '',
+      email: '',
+      phone: '',
+      address: '',
+      loyalty_points: 0,
+      payment_terms: 'Net 30'
+    });
+    setEditingCustomer(null);
+    setError(null);
+  };
 
   const filteredCustomers = customers.filter(customer =>
     customer.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -126,6 +230,7 @@ export const CustomerManager: React.FC<CustomerManagerProps> = ({ user, store })
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Loyalty Points</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total Purchases</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Joined</th>
+                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
@@ -165,7 +270,21 @@ export const CustomerManager: React.FC<CustomerManagerProps> = ({ user, store })
                         ${customer.totalPurchases.toLocaleString()}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        {new Date(customer.registrationDate).toLocaleDateString()}
+                        {customer.registrationDate ? new Date(customer.registrationDate).toLocaleDateString() : customer.created_at ? new Date(customer.created_at).toLocaleDateString() : 'N/A'}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                        <button
+                          onClick={() => handleEditClick(customer)}
+                          className="text-blue-600 hover:text-blue-900 mr-4"
+                        >
+                          <Edit className="w-4 h-4 inline" />
+                        </button>
+                        <button
+                          onClick={() => handleDeleteCustomer(customer.id)}
+                          className="text-red-600 hover:text-red-900"
+                        >
+                          <Trash2 className="w-4 h-4 inline" />
+                        </button>
                       </td>
                     </tr>
                   ))}
@@ -224,6 +343,149 @@ export const CustomerManager: React.FC<CustomerManagerProps> = ({ user, store })
           </div>
         </div>
       </div>
+
+      {/* Add/Edit Customer Modal */}
+      {showAddModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+            <div className="sticky top-0 bg-white border-b border-gray-200 p-6 flex items-center justify-between">
+              <h2 className="text-2xl font-bold text-gray-900">
+                {editingCustomer ? 'Edit Customer' : 'Add New Customer'}
+              </h2>
+              <button
+                onClick={() => {
+                  setShowAddModal(false);
+                  resetForm();
+                }}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4">
+              {error && (
+                <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded">
+                  {error}
+                </div>
+              )}
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Full Name *
+                  </label>
+                  <input
+                    type="text"
+                    value={formData.name}
+                    onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    placeholder="John Doe"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Phone Number *
+                  </label>
+                  <input
+                    type="tel"
+                    value={formData.phone}
+                    onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    placeholder="555-0123"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Email Address
+                  </label>
+                  <input
+                    type="email"
+                    value={formData.email}
+                    onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    placeholder="customer@email.com"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Loyalty Points
+                  </label>
+                  <input
+                    type="number"
+                    value={formData.loyalty_points}
+                    onChange={(e) => setFormData({ ...formData, loyalty_points: parseInt(e.target.value) || 0 })}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    min="0"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Address
+                </label>
+                <textarea
+                  value={formData.address}
+                  onChange={(e) => setFormData({ ...formData, address: e.target.value })}
+                  rows={3}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  placeholder="123 Main St, City, State, ZIP"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Payment Terms
+                </label>
+                <select
+                  value={formData.payment_terms}
+                  onChange={(e) => setFormData({ ...formData, payment_terms: e.target.value })}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                >
+                  <option value="Net 30">Net 30</option>
+                  <option value="Net 60">Net 60</option>
+                  <option value="Net 90">Net 90</option>
+                  <option value="Due on Receipt">Due on Receipt</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="sticky bottom-0 bg-gray-50 border-t border-gray-200 p-6 flex justify-end space-x-3">
+              <button
+                onClick={() => {
+                  setShowAddModal(false);
+                  resetForm();
+                }}
+                className="px-6 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-100"
+                disabled={saving}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={editingCustomer ? handleUpdateCustomer : handleAddCustomer}
+                disabled={saving}
+                className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center disabled:opacity-50"
+              >
+                {saving ? (
+                  <>
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                    Saving...
+                  </>
+                ) : (
+                  <>
+                    <Save className="w-4 h-4 mr-2" />
+                    {editingCustomer ? 'Update' : 'Add'} Customer
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
