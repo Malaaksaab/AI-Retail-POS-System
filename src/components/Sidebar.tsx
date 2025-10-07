@@ -79,11 +79,11 @@ const menuItems = [
     permission: PERMISSIONS.SUPPLIERS_VIEW,
     category: 'catalog'
   },
-  { 
-    id: 'inventory-transfer', 
-    label: 'Inventory Transfer', 
-    icon: ArrowRightLeft, 
-    permission: PERMISSIONS.INVENTORY_TRANSFER,
+  {
+    id: 'inventory-transfer',
+    label: 'Inventory Transfer',
+    icon: ArrowRightLeft,
+    permission: PERMISSIONS.INVENTORY_TRANSFER_ACTION,
     category: 'catalog'
   },
   { 
