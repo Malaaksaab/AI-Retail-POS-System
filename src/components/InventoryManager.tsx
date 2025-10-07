@@ -1,38 +1,131 @@
-import React, { useState } from 'react';
-import { Package, Plus, Search, Filter, Edit, Trash2, AlertTriangle } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Package, Plus, Search, Filter, Edit, Trash2, AlertTriangle, Save, X } from 'lucide-react';
 import { User, Store, Product } from '../types';
+import { db } from '../services/database';
 
 interface InventoryManagerProps {
   user: User;
   store: Store | null;
 }
 
-const mockProducts: Product[] = [
-  { id: '1', name: 'iPhone 15 Pro', barcode: '123456789', category: 'Electronics', price: 999.00, cost: 750.00, stock: 25, minStock: 5, description: 'Latest iPhone with advanced features', storeId: '1' },
-  { id: '2', name: 'Samsung Galaxy S24', barcode: '987654321', category: 'Electronics', price: 800.00, cost: 600.00, stock: 30, minStock: 5, description: 'Samsung flagship smartphone', storeId: '1' },
-  { id: '3', name: 'AirPods Pro', barcode: '456789123', category: 'Electronics', price: 249.00, cost: 180.00, stock: 50, minStock: 10, description: 'Wireless noise-canceling earbuds', storeId: '1' },
-  { id: '4', name: 'MacBook Air M2', barcode: '789123456', category: 'Electronics', price: 1199.00, cost: 950.00, stock: 3, minStock: 5, description: 'Ultra-thin laptop with M2 chip', storeId: '1' },
-  { id: '5', name: 'iPad Air', barcode: '321654987', category: 'Electronics', price: 599.00, cost: 450.00, stock: 15, minStock: 8, description: 'Versatile tablet for work and play', storeId: '1' },
-];
-
 export const InventoryManager: React.FC<InventoryManagerProps> = ({ user, store }) => {
-  const [products, setProducts] = useState<Product[]>(mockProducts);
+  const [products, setProducts] = useState<Product[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('');
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
+  const [formData, setFormData] = useState<Partial<Product>>({});
+  const [saving, setSaving] = useState(false);
 
-  const categories = [...new Set(products.map(p => p.category))];
-  
+  useEffect(() => {
+    loadProducts();
+  }, [store]);
+
+  const loadProducts = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      const data = await db.products.getAll(store?.id);
+      setProducts(data || []);
+    } catch (err: any) {
+      setError(err.message || 'Failed to load products');
+      console.error('Error loading products:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleAddProduct = async () => {
+    if (!formData.name || !formData.price || !store?.id) {
+      setError('Please fill in all required fields');
+      return;
+    }
+
+    try {
+      setSaving(true);
+      setError(null);
+      const newProduct = await db.products.create({
+        ...formData as any,
+        store_id: store.id,
+        storeId: store.id,
+        stock_quantity: formData.stock || 0,
+        reorder_level: formData.minStock || 5,
+        created_at: new Date().toISOString()
+      });
+      setProducts([...products, newProduct]);
+      setShowAddModal(false);
+      setFormData({});
+    } catch (err: any) {
+      setError(err.message || 'Failed to add product');
+      console.error('Error adding product:', err);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleUpdateProduct = async () => {
+    if (!editingProduct?.id) return;
+
+    try {
+      setSaving(true);
+      setError(null);
+      const updated = await db.products.update(editingProduct.id, {
+        ...formData,
+        stock_quantity: formData.stock,
+        reorder_level: formData.minStock
+      });
+      setProducts(products.map(p => p.id === editingProduct.id ? { ...p, ...updated } : p));
+      setEditingProduct(null);
+      setFormData({});
+    } catch (err: any) {
+      setError(err.message || 'Failed to update product');
+      console.error('Error updating product:', err);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDeleteProduct = async (id: string) => {
+    if (!confirm('Are you sure you want to delete this product?')) return;
+
+    try {
+      setError(null);
+      await db.products.delete(id);
+      setProducts(products.filter(p => p.id !== id));
+    } catch (err: any) {
+      setError(err.message || 'Failed to delete product');
+      console.error('Error deleting product:', err);
+    }
+  };
+
+  const handleEditClick = (product: Product) => {
+    setEditingProduct(product);
+    setFormData({
+      name: product.name,
+      barcode: product.barcode,
+      category: product.category,
+      price: product.price,
+      cost: product.cost,
+      stock: product.stock,
+      minStock: product.minStock,
+      description: product.description
+    });
+    setShowAddModal(true);
+  };
+
+  const categories = [...new Set(products.map(p => p.category).filter(Boolean))];
+
   const filteredProducts = products.filter(product => {
-    const matchesSearch = product.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         product.barcode.includes(searchTerm);
+    const matchesSearch = product.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                         product.barcode?.includes(searchTerm);
     const matchesCategory = !selectedCategory || product.category === selectedCategory;
     return matchesSearch && matchesCategory;
   });
 
-  const lowStockProducts = products.filter(p => p.stock <= p.minStock);
-  const totalValue = products.reduce((sum, p) => sum + (p.stock * p.cost), 0);
+  const lowStockProducts = products.filter(p => (p.stock || 0) <= (p.minStock || 0));
+  const totalValue = products.reduce((sum, p) => sum + ((p.stock || 0) * (p.cost || 0)), 0);
 
   return (
     <div className="space-y-6">
@@ -218,12 +311,15 @@ export const InventoryManager: React.FC<InventoryManagerProps> = ({ user, store 
                     <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                       <div className="flex items-center space-x-2">
                         <button
-                          onClick={() => setEditingProduct(product)}
+                          onClick={() => handleEditClick(product)}
                           className="text-blue-600 hover:text-blue-900"
                         >
                           <Edit className="w-4 h-4" />
                         </button>
-                        <button className="text-red-600 hover:text-red-900">
+                        <button
+                          onClick={() => handleDeleteProduct(product.id)}
+                          className="text-red-600 hover:text-red-900"
+                        >
                           <Trash2 className="w-4 h-4" />
                         </button>
                       </div>
