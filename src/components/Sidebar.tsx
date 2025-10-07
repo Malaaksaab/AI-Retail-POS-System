@@ -1,11 +1,11 @@
 import React from 'react';
-import { 
-  LayoutDashboard, 
-  ShoppingCart, 
-  Package, 
-  Users, 
-  BarChart3, 
-  Store, 
+import {
+  LayoutDashboard,
+  ShoppingCart,
+  Package,
+  Users,
+  BarChart3,
+  Store,
   UserCheck,
   Settings,
   Truck,
@@ -21,7 +21,10 @@ import {
   Wifi,
   Palette,
   ArrowRightLeft,
-  Activity
+  Activity,
+  Receipt,
+  DollarSign,
+  TrendingUp
 } from 'lucide-react';
 import { User } from '../types';
 import { hasPermission, PERMISSIONS } from '../utils/permissions';
@@ -103,11 +106,32 @@ const menuItems = [
     category: 'sales',
     isHeader: true
   },
-  { 
-    id: 'transactions', 
-    label: 'Transactions', 
-    icon: CreditCard, 
+  {
+    id: 'transactions',
+    label: 'Transactions',
+    icon: CreditCard,
     permission: PERMISSIONS.REPORTS_VIEW,
+    category: 'sales'
+  },
+  {
+    id: 'invoices',
+    label: 'Invoices',
+    icon: Receipt,
+    permission: PERMISSIONS.REPORTS_VIEW,
+    category: 'sales'
+  },
+  {
+    id: 'payments',
+    label: 'Payment Tracking',
+    icon: DollarSign,
+    permission: PERMISSIONS.REPORTS_VIEW,
+    category: 'sales'
+  },
+  {
+    id: 'financial-reports',
+    label: 'Financial Reports',
+    icon: TrendingUp,
+    permission: PERMISSIONS.REPORTS_FINANCIAL,
     category: 'sales'
   },
   { 

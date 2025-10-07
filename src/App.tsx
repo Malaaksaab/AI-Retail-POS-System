@@ -17,6 +17,9 @@ import { InventoryTransferPage } from './components/InventoryTransfer';
 import { EmployeeMonitoring } from './components/EmployeeMonitoring';
 import { AdvancedPOSFeatures } from './components/AdvancedPOSFeatures';
 import { AdvancedPOSTerminal } from './components/AdvancedPOSTerminal';
+import { InvoiceManagement } from './components/InvoiceManagement';
+import { PaymentTracking } from './components/PaymentTracking';
+import { FinancialReports } from './components/FinancialReports';
 import { Sidebar } from './components/Sidebar';
 import { Header } from './components/Header';
 import { User, Store, Permission } from './types';
@@ -104,6 +107,12 @@ function App() {
         return <EmployeeMonitoring user={currentUser} stores={[currentStore].filter(Boolean) as Store[]} />;
       case 'advanced-features':
         return <AdvancedPOSFeatures user={currentUser} stores={[currentStore].filter(Boolean) as Store[]} />;
+      case 'invoices':
+        return <InvoiceManagement user={currentUser} store={currentStore} />;
+      case 'payments':
+        return <PaymentTracking user={currentUser} store={currentStore} />;
+      case 'financial-reports':
+        return <FinancialReports user={currentUser} store={currentStore} />;
       default:
         return <Dashboard user={currentUser} store={currentStore} />;
     }
