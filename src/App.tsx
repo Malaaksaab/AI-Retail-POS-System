@@ -1,4 +1,7 @@
 import React, { useState, useEffect } from 'react';
+import { auth } from './services/auth';
+import { db } from './services/database';
+import { initializeDemoData } from './services/initData';
 import { LoginScreen } from './components/LoginScreen';
 import { Dashboard } from './components/Dashboard';
 import { POSTerminal } from './components/POSTerminal';
@@ -32,7 +35,55 @@ function App() {
   const [currentStore, setCurrentStore] = useState<Store | null>(null);
   const [currentView, setCurrentView] = useState<string>('dashboard');
   const [currentTheme, setCurrentTheme] = useState<any>(null);
+  const [isLoading, setIsLoading] = useState(true);
   const { toasts, removeToast, success, error, warning, info } = useToast();
+
+  useEffect(() => {
+    checkAuth();
+    const { data: { subscription } } = auth.onAuthStateChange((user) => {
+      if (user) {
+        setCurrentUser(user);
+        loadUserStore(user);
+      } else {
+        setCurrentUser(null);
+        setCurrentStore(null);
+      }
+    });
+
+    return () => {
+      subscription?.unsubscribe();
+    };
+  }, []);
+
+  const checkAuth = async () => {
+    try {
+      await initializeDemoData();
+
+      const user = await auth.getCurrentUser();
+      if (user) {
+        setCurrentUser(user);
+        await loadUserStore(user);
+      }
+    } catch (err) {
+      console.error('Auth check failed:', err);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const loadUserStore = async (user: User) => {
+    try {
+      if (user.storeId) {
+        const store = await db.stores.getById(user.storeId);
+        if (store) setCurrentStore(store);
+      } else if (user.role === 'admin') {
+        const stores = await db.stores.getAll();
+        if (stores.length > 0) setCurrentStore(stores[0]);
+      }
+    } catch (err) {
+      console.error('Failed to load store:', err);
+    }
+  };
 
   // Initialize user permissions when user logs in
   useEffect(() => {
@@ -62,11 +113,27 @@ function App() {
     setCurrentStore(store);
   };
 
-  const handleLogout = () => {
-    setCurrentUser(null);
-    setCurrentStore(null);
-    setCurrentView('dashboard');
+  const handleLogout = async () => {
+    try {
+      await auth.signOut();
+      setCurrentUser(null);
+      setCurrentStore(null);
+      setCurrentView('dashboard');
+    } catch (err) {
+      console.error('Logout failed:', err);
+    }
   };
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div className="text-center">
+          <div className="w-16 h-16 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+          <p className="text-gray-600">Loading...</p>
+        </div>
+      </div>
+    );
+  }
 
   if (!currentUser) {
     return <LoginScreen onLogin={handleLogin} onStoreSelect={handleStoreSelect} />;

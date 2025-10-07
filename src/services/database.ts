@@ -829,5 +829,164 @@ export const db = {
         )
         .subscribe();
     }
+  },
+
+  invoices: {
+    async getAll(storeId?: string) {
+      let query = supabase
+        .from('invoices')
+        .select(`
+          *,
+          customers(id, name, email, phone),
+          invoice_items(*)
+        `)
+        .order('created_at', { ascending: false });
+
+      if (storeId) {
+        query = query.eq('store_id', storeId);
+      }
+
+      const { data, error } = await query;
+      if (error) throw error;
+      return data;
+    },
+
+    async getById(id: string) {
+      const { data, error } = await supabase
+        .from('invoices')
+        .select(`
+          *,
+          customers(id, name, email, phone),
+          invoice_items(*),
+          invoice_payments(*)
+        `)
+        .eq('id', id)
+        .maybeSingle();
+      if (error) throw error;
+      return data;
+    },
+
+    async create(invoice: any) {
+      const { items, ...invoiceData } = invoice;
+
+      const { data: newInvoice, error: invoiceError } = await supabase
+        .from('invoices')
+        .insert(invoiceData)
+        .select()
+        .single();
+
+      if (invoiceError) throw invoiceError;
+
+      if (items && items.length > 0) {
+        const itemsData = items.map((item: any) => ({
+          ...item,
+          invoice_id: newInvoice.id
+        }));
+
+        await supabase.from('invoice_items').insert(itemsData);
+      }
+
+      return newInvoice;
+    },
+
+    async update(id: string, updates: any) {
+      const { data, error } = await supabase
+        .from('invoices')
+        .update(updates)
+        .eq('id', id)
+        .select()
+        .single();
+      if (error) throw error;
+      return data;
+    },
+
+    async delete(id: string) {
+      const { error } = await supabase
+        .from('invoices')
+        .delete()
+        .eq('id', id);
+      if (error) throw error;
+    },
+
+    subscribe(callback: (data: any[]) => void, storeId?: string) {
+      return supabase
+        .channel('invoices_changes')
+        .on('postgres_changes',
+          { event: '*', schema: 'public', table: 'invoices' },
+          async () => {
+            const data = await this.getAll(storeId);
+            callback(data);
+          }
+        )
+        .subscribe();
+    }
+  },
+
+  invoicePayments: {
+    async getAll(invoiceId?: string) {
+      let query = supabase
+        .from('invoice_payments')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (invoiceId) {
+        query = query.eq('invoice_id', invoiceId);
+      }
+
+      const { data, error } = await query;
+      if (error) throw error;
+      return data;
+    },
+
+    async create(payment: any) {
+      const { data, error } = await supabase
+        .from('invoice_payments')
+        .insert(payment)
+        .select()
+        .single();
+      if (error) throw error;
+      return data;
+    },
+
+    async delete(id: string) {
+      const { error } = await supabase
+        .from('invoice_payments')
+        .delete()
+        .eq('id', id);
+      if (error) throw error;
+    }
+  },
+
+  taxRates: {
+    async getAll() {
+      const { data, error } = await supabase
+        .from('tax_rates')
+        .select('*')
+        .eq('is_active', true)
+        .order('name');
+      if (error) throw error;
+      return data;
+    },
+
+    async create(taxRate: any) {
+      const { data, error } = await supabase
+        .from('tax_rates')
+        .insert(taxRate)
+        .select()
+        .single();
+      if (error) throw error;
+      return data;
+    },
+
+    async update(id: string, updates: any) {
+      const { data, error } = await supabase
+        .from('tax_rates')
+        .update(updates)
+        .eq('id', id)
+        .select()
+        .single();
+      if (error) throw error;
+      return data;
+    }
   }
 };

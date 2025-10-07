@@ -1,4 +1,5 @@
 import { db } from './database';
+import { supabase } from '../lib/supabase';
 
 export async function initializeDemoData() {
   try {
@@ -59,8 +60,9 @@ export async function initializeDemoData() {
 
     const demoUsers = [
       {
-        name: 'Sarah Johnson',
-        email: 'sarah@retailpos.com',
+        name: 'Admin User',
+        email: 'admin@retailpos.com',
+        password: 'admin123',
         role: 'admin',
         store_id: null,
         is_active: true,
@@ -68,8 +70,9 @@ export async function initializeDemoData() {
         system_level: 'corporate'
       },
       {
-        name: 'Mike Chen',
-        email: 'mike@retailpos.com',
+        name: 'Manager User',
+        email: 'manager@retailpos.com',
+        password: 'manager123',
         role: 'manager',
         store_id: createdStores[0].id,
         is_active: true,
@@ -77,8 +80,9 @@ export async function initializeDemoData() {
         system_level: 'store'
       },
       {
-        name: 'Emily Davis',
-        email: 'emily@retailpos.com',
+        name: 'Cashier User',
+        email: 'cashier@retailpos.com',
+        password: 'cashier123',
         role: 'cashier',
         store_id: createdStores[0].id,
         is_active: true,
@@ -88,7 +92,30 @@ export async function initializeDemoData() {
     ];
 
     for (const user of demoUsers) {
-      await db.users.create(user);
+      const { password, ...userData } = user;
+
+      try {
+        const { error: signUpError } = await supabase.auth.signUp({
+          email: user.email,
+          password: password,
+          options: {
+            data: {
+              name: user.name,
+              role: user.role
+            }
+          }
+        });
+
+        if (signUpError && !signUpError.message.includes('already registered')) {
+          console.error(`Failed to create auth user ${user.email}:`, signUpError);
+        }
+
+        await db.users.create(userData);
+      } catch (err: any) {
+        if (!err.message.includes('duplicate')) {
+          console.error(`Error creating user ${user.email}:`, err);
+        }
+      }
     }
 
     const demoCategories = [
