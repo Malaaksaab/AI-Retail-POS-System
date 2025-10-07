@@ -20,16 +20,19 @@ import { AdvancedPOSTerminal } from './components/AdvancedPOSTerminal';
 import { InvoiceManagement } from './components/InvoiceManagement';
 import { PaymentTracking } from './components/PaymentTracking';
 import { FinancialReports } from './components/FinancialReports';
+import { ToastContainer } from './components/Toast';
 import { Sidebar } from './components/Sidebar';
 import { Header } from './components/Header';
 import { User, Store, Permission } from './types';
 import { ROLE_PERMISSIONS } from './utils/permissions';
+import { useToast } from './hooks/useToast';
 
 function App() {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [currentStore, setCurrentStore] = useState<Store | null>(null);
   const [currentView, setCurrentView] = useState<string>('dashboard');
   const [currentTheme, setCurrentTheme] = useState<any>(null);
+  const { toasts, removeToast, success, error, warning, info } = useToast();
 
   // Initialize user permissions when user logs in
   useEffect(() => {
@@ -119,32 +122,35 @@ function App() {
   };
 
   return (
-    <div 
-      className="min-h-screen flex"
-      style={{
-        backgroundColor: currentTheme?.colors?.background || '#f8fafc',
-        fontFamily: currentTheme?.fonts?.primary || 'Inter, system-ui, sans-serif'
-      }}
-    >
-      <Sidebar 
-        user={currentUser} 
-        currentView={currentView} 
-        onViewChange={setCurrentView}
-        theme={currentTheme}
-      />
-      <div className="flex-1 flex flex-col">
-        <Header 
-          user={currentUser} 
-          store={currentStore} 
-          onStoreChange={handleStoreSelect}
-          onLogout={handleLogout}
+    <>
+      <div
+        className="min-h-screen flex"
+        style={{
+          backgroundColor: currentTheme?.colors?.background || '#f8fafc',
+          fontFamily: currentTheme?.fonts?.primary || 'Inter, system-ui, sans-serif'
+        }}
+      >
+        <Sidebar
+          user={currentUser}
+          currentView={currentView}
+          onViewChange={setCurrentView}
           theme={currentTheme}
         />
-        <main className="flex-1 p-6 overflow-auto">
-          {renderCurrentView()}
-        </main>
+        <div className="flex-1 flex flex-col">
+          <Header
+            user={currentUser}
+            store={currentStore}
+            onStoreChange={handleStoreSelect}
+            onLogout={handleLogout}
+            theme={currentTheme}
+          />
+          <main className="flex-1 p-6 overflow-auto">
+            {renderCurrentView()}
+          </main>
+        </div>
       </div>
-    </div>
+      <ToastContainer toasts={toasts} onClose={removeToast} />
+    </>
   );
 }
 
