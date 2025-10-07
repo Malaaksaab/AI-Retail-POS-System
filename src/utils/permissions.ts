@@ -63,7 +63,6 @@ export const PERMISSIONS = {
   // Enterprise Management (Admin Only)
   ENTERPRISE_DASHBOARD: 'enterprise:dashboard',
   MULTI_STORE_CONTROL: 'multi_store:control',
-  INVENTORY_TRANSFER: 'inventory:transfer',
   SYSTEM_MONITORING: 'system:monitoring',
   PERFORMANCE_ANALYTICS: 'performance:analytics',
   CENTRALIZED_REPORTING: 'reporting:centralized',
