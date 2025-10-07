@@ -214,8 +214,16 @@ export const ROLE_PERMISSIONS = {
 };
 
 export const hasPermission = (user: User, permission: string): boolean => {
-  if (!user || !user.permissions) return false;
-  return user.permissions.some(p => p.actions.includes(permission));
+  if (!user) return false;
+
+  // Check if user has permissions array with actions
+  if (user.permissions && user.permissions.length > 0) {
+    return user.permissions.some(p => p.actions.includes(permission));
+  }
+
+  // Fallback: check role-based permissions directly
+  const rolePermissions = ROLE_PERMISSIONS[user.role as keyof typeof ROLE_PERMISSIONS] || [];
+  return rolePermissions.includes(permission);
 };
 
 export const canAccess = (user: User, module: string): boolean => {
