@@ -1,94 +1,105 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { ShoppingCart, Store as StoreIcon, User as UserIcon, Lock, ChevronRight } from 'lucide-react';
 import { User, Store } from '../types';
-import { db } from '../services/database';
-import { initializeDemoData } from '../services/initData';
 
 interface LoginScreenProps {
   onLogin: (user: User) => void;
   onStoreSelect: (store: Store) => void;
 }
 
+const mockUsers: User[] = [
+  { id: '1', name: 'Sarah Johnson', email: 'sarah@retailpos.com', role: 'admin', permissions: [], isActive: true },
+  { id: '2', name: 'Mike Chen', email: 'mike@retailpos.com', role: 'manager', storeId: '1', permissions: [], isActive: true },
+  { id: '3', name: 'Emily Davis', email: 'emily@retailpos.com', role: 'cashier', storeId: '1', permissions: [], isActive: true },
+];
+
+const mockStores: Store[] = [
+  {
+    id: '1',
+    name: 'Downtown Store',
+    address: '123 Main St',
+    phone: '(555) 123-4567',
+    email: 'downtown@retailpos.com',
+    status: 'active',
+    manager: 'Mike Chen',
+    settings: {
+      currency: 'USD',
+      currencySymbol: '$',
+      taxRate: 8.5,
+      receiptFooter: 'Thank you for your business!',
+      loyaltyEnabled: true,
+      offlineMode: false
+    },
+    hardware: {
+      barcodeScanner: { enabled: true, type: 'usb', model: 'Honeywell Voyager 1200g' },
+      printer: { enabled: true, type: 'thermal', model: 'Epson TM-T88V', paperSize: '80mm' },
+      cashDrawer: { enabled: true, type: 'rj11', model: 'APG Vasario' },
+      cardReader: { enabled: true, type: 'chip', model: 'Ingenico iCT250' },
+      display: { customerDisplay: true, touchScreen: true, size: '15-inch' }
+    }
+  },
+  {
+    id: '2',
+    name: 'Mall Location',
+    address: '456 Shopping Center',
+    phone: '(555) 987-6543',
+    email: 'mall@retailpos.com',
+    status: 'active',
+    manager: 'Lisa Wong',
+    settings: {
+      currency: 'USD',
+      currencySymbol: '$',
+      taxRate: 8.5,
+      receiptFooter: 'Thank you for your business!',
+      loyaltyEnabled: true,
+      offlineMode: false
+    },
+    hardware: {
+      barcodeScanner: { enabled: true, type: 'usb', model: 'Honeywell Voyager 1200g' },
+      printer: { enabled: true, type: 'thermal', model: 'Epson TM-T88V', paperSize: '80mm' },
+      cashDrawer: { enabled: true, type: 'rj11', model: 'APG Vasario' },
+      cardReader: { enabled: true, type: 'chip', model: 'Ingenico iCT250' },
+      display: { customerDisplay: true, touchScreen: true, size: '15-inch' }
+    }
+  },
+  {
+    id: '3',
+    name: 'Westside Branch',
+    address: '789 West Ave',
+    phone: '(555) 456-7890',
+    email: 'westside@retailpos.com',
+    status: 'active',
+    manager: 'Tom Rodriguez',
+    settings: {
+      currency: 'USD',
+      currencySymbol: '$',
+      taxRate: 8.5,
+      receiptFooter: 'Thank you for your business!',
+      loyaltyEnabled: true,
+      offlineMode: false
+    },
+    hardware: {
+      barcodeScanner: { enabled: true, type: 'usb', model: 'Honeywell Voyager 1200g' },
+      printer: { enabled: true, type: 'thermal', model: 'Epson TM-T88V', paperSize: '80mm' },
+      cashDrawer: { enabled: true, type: 'rj11', model: 'APG Vasario' },
+      cardReader: { enabled: true, type: 'chip', model: 'Ingenico iCT250' },
+      display: { customerDisplay: true, touchScreen: true, size: '15-inch' }
+    }
+  },
+];
 
 export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin, onStoreSelect }) => {
   const [selectedUser, setSelectedUser] = useState<User | null>(null);
   const [password, setPassword] = useState('');
-  const [users, setUsers] = useState<User[]>([]);
-  const [stores, setStores] = useState<Store[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    loadData();
-  }, []);
-
-  const loadData = async () => {
-    try {
-      setLoading(true);
-
-      await initializeDemoData();
-
-      const [usersData, storesData] = await Promise.all([
-        db.users.getAll(),
-        db.stores.getAll()
-      ]);
-
-      const mappedUsers = usersData.map(u => ({
-        id: u.id,
-        name: u.name,
-        email: u.email,
-        role: u.role as 'admin' | 'manager' | 'cashier',
-        storeId: u.store_id,
-        avatar: u.avatar,
-        permissions: [],
-        isActive: u.is_active,
-        lastLogin: u.last_login,
-        aiAccess: u.ai_access,
-        systemLevel: u.system_level as any
-      }));
-
-      const mappedStores = storesData.map(s => ({
-        id: s.id,
-        name: s.name,
-        address: s.address,
-        phone: s.phone,
-        email: s.email,
-        status: s.status as 'active' | 'inactive',
-        manager: s.manager,
-        settings: s.store_settings?.[0] ? {
-          currency: s.store_settings[0].currency,
-          currencySymbol: s.store_settings[0].currency_symbol,
-          taxRate: parseFloat(s.store_settings[0].tax_rate),
-          receiptFooter: s.store_settings[0].receipt_footer || '',
-          loyaltyEnabled: s.store_settings[0].loyalty_enabled,
-          offlineMode: s.store_settings[0].offline_mode
-        } : {
-          currency: 'USD',
-          currencySymbol: '$',
-          taxRate: 0,
-          receiptFooter: '',
-          loyaltyEnabled: true,
-          offlineMode: false
-        },
-        hardware: s.hardware_config?.[0] || {}
-      }));
-
-      setUsers(mappedUsers);
-      setStores(mappedStores);
-    } catch (error) {
-      console.error('Error loading data:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const handleLogin = () => {
     if (selectedUser) {
       onLogin(selectedUser);
       if (selectedUser.storeId) {
-        const store = stores.find(s => s.id === selectedUser.storeId);
+        const store = mockStores.find(s => s.id === selectedUser.storeId);
         if (store) onStoreSelect(store);
-      } else if (selectedUser.role === 'admin' && stores.length > 0) {
-        onStoreSelect(stores[0]);
+      } else if (selectedUser.role === 'admin') {
+        onStoreSelect(mockStores[0]);
       }
     }
   };
@@ -104,18 +115,10 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin, onStoreSelect
           <p className="text-gray-600">Advanced Cloud-Based POS System</p>
         </div>
 
-        {loading ? (
-          <div className="text-center py-8">
-            <div className="inline-block animate-spin rounded-full h-8 w-8 border-4 border-blue-600 border-t-transparent"></div>
-            <p className="mt-4 text-gray-600">Loading...</p>
-          </div>
-        ) : !selectedUser ? (
+        {!selectedUser ? (
           <div className="space-y-3">
             <h2 className="text-lg font-semibold text-gray-900 mb-4">Select Your Profile</h2>
-            {users.length === 0 ? (
-              <p className="text-center text-gray-500 py-4">No users found. Please add users first.</p>
-            ) : (
-              users.map((user) => (
+            {mockUsers.map((user) => (
               <button
                 key={user.id}
                 onClick={() => setSelectedUser(user)}
@@ -130,8 +133,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin, onStoreSelect
                 </div>
                 <ChevronRight className="w-5 h-5 text-gray-400" />
               </button>
-              ))
-            )}
+            ))}
           </div>
         ) : (
           <div className="space-y-6">
@@ -165,23 +167,16 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin, onStoreSelect
               >
                 Sign In
               </button>
-            </div>
 
-            <button
-              onClick={() => setSelectedUser(null)}
-              className="w-full text-sm text-gray-500 hover:text-gray-700"
-            >
-              Switch User
-            </button>
+              <button
+                onClick={() => setSelectedUser(null)}
+                className="w-full text-gray-600 hover:text-gray-900 text-sm"
+              >
+                Back to profiles
+              </button>
+            </div>
           </div>
         )}
-
-        <div className="mt-8 pt-6 border-t border-gray-200 text-center">
-          <div className="flex items-center justify-center text-xs text-gray-500">
-            <StoreIcon className="w-4 h-4 mr-1" />
-            Multi-Store • Cloud Sync • Offline Support
-          </div>
-        </div>
       </div>
     </div>
   );
