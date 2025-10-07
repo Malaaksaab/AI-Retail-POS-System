@@ -47,14 +47,39 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin, onStoreSelect
     setLoading(true);
 
     try {
-      const { user } = await auth.signIn(email, password);
-      onLogin(user);
+      // Check if it's a demo account
+      const demoAccount = demoCredentials.find(d => d.email === email && d.password === password);
 
-      if (user.storeId) {
-        const store = stores.find(s => s.id === user.storeId);
-        if (store) onStoreSelect(store);
-      } else if (user.role === 'admin' && stores.length > 0) {
-        onStoreSelect(stores[0]);
+      if (demoAccount) {
+        // Demo login - bypass Supabase auth and use mock user
+        const demoUser: User = {
+          id: `demo-${demoAccount.role}`,
+          email: demoAccount.email,
+          name: `${demoAccount.role.charAt(0).toUpperCase() + demoAccount.role.slice(1)} User`,
+          role: demoAccount.role as 'admin' | 'manager' | 'cashier',
+          storeId: demoAccount.role !== 'admin' && stores.length > 0 ? stores[0].id : undefined,
+          isActive: true,
+          lastLogin: new Date().toISOString(),
+          permissions: [],
+          createdAt: new Date().toISOString()
+        };
+
+        onLogin(demoUser);
+
+        if (stores.length > 0) {
+          onStoreSelect(stores[0]);
+        }
+      } else {
+        // Real authentication with Supabase
+        const { user } = await auth.signIn(email, password);
+        onLogin(user);
+
+        if (user.storeId) {
+          const store = stores.find(s => s.id === user.storeId);
+          if (store) onStoreSelect(store);
+        } else if (user.role === 'admin' && stores.length > 0) {
+          onStoreSelect(stores[0]);
+        }
       }
     } catch (err: any) {
       setError(err.message || 'Invalid email or password');
