@@ -1,0 +1,33 @@
+name: Auto Version Creator
+
+on:
+  push:
+    branches:
+      - main
+      - master
+
+jobs:
+  create-version-branch:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout main branch
+        uses: actions/checkout@v4
+
+      - name: Set up Git
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Generate new version branch name
+        id: version
+        run: |
+          DATE=$(date +"%Y-%m-%d")
+          COUNT=$(git branch -r | grep "version-$DATE" | wc -l)
+          VERSION_BRANCH="version-$DATE-$((COUNT + 1))"
+          echo "branch=$VERSION_BRANCH" >> $GITHUB_OUTPUT
+
+      - name: Create and push new version branch
+        run: |
+          git checkout -b ${{ steps.version.outputs.branch }}
+          git push origin ${{ steps.version.outputs.branch }}
