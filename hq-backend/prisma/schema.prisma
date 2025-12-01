@@ -1,0 +1,698 @@
+// =============================================================================
+// RETAIL HQ MANAGEMENT SYSTEM - PRISMA SCHEMA
+// =============================================================================
+// This schema defines the centralized HQ database that manages multiple stores
+// It does NOT replace store databases - it syncs with them via APIs
+// =============================================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// =============================================================================
+// ENUMS
+// =============================================================================
+
+enum UserRole {
+  OWNER           // Full system access
+  HQ_ADMIN        // HQ-level administrator
+  REGIONAL_MANAGER // Manages multiple stores in a region
+  STORE_MANAGER   // Manages single store
+  FINANCE_MANAGER // Financial access across stores
+  AUDITOR         // Read-only access for auditing
+  ANALYST         // Analytics and reporting access
+}
+
+enum StoreStatus {
+  ACTIVE
+  INACTIVE
+  MAINTENANCE
+  SUSPENDED
+}
+
+enum StoreType {
+  SUPABASE    // Store using Supabase backend
+  ESALETAB    // Store using eSaletab POS
+  CUSTOM_API  // Custom API integration
+}
+
+enum SyncStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+enum TransferStatus {
+  DRAFT
+  PENDING_APPROVAL
+  APPROVED
+  IN_TRANSIT
+  RECEIVED
+  REJECTED
+  CANCELLED
+}
+
+enum PromotionStatus {
+  DRAFT
+  SCHEDULED
+  ACTIVE
+  EXPIRED
+  CANCELLED
+}
+
+enum AlertSeverity {
+  INFO
+  WARNING
+  ERROR
+  CRITICAL
+}
+
+enum AlertType {
+  LOW_STOCK
+  SYNC_FAILURE
+  HIGH_VALUE_TRANSACTION
+  UNUSUAL_ACTIVITY
+  SYSTEM_ERROR
+  PERFORMANCE_ISSUE
+}
+
+// =============================================================================
+// USER MANAGEMENT
+// =============================================================================
+
+model User {
+  id            String   @id @default(uuid())
+  email         String   @unique
+  password      String   // Hashed with bcrypt
+  firstName     String
+  lastName      String
+  role          UserRole @default(ANALYST)
+  avatar        String?
+  phone         String?
+  isActive      Boolean  @default(true)
+  lastLogin     DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  // Relationships
+  storeAccess   StoreAccess[]
+  sessions      Session[]
+  auditLogs     AuditLog[]
+  notifications Notification[]
+
+  @@index([email])
+  @@index([role])
+  @@map("users")
+}
+
+model Session {
+  id           String   @id @default(uuid())
+  userId       String
+  token        String   @unique
+  refreshToken String   @unique
+  expiresAt    DateTime
+  createdAt    DateTime @default(now())
+  ipAddress    String?
+  userAgent    String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([token])
+  @@map("sessions")
+}
+
+// Defines which stores a user can access and their permissions
+model StoreAccess {
+  id        String   @id @default(uuid())
+  userId    String
+  storeId   String
+  canView   Boolean  @default(true)
+  canEdit   Boolean  @default(false)
+  canDelete Boolean  @default(false)
+  canApprove Boolean @default(false)
+  createdAt DateTime @default(now())
+
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  store Store @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, storeId])
+  @@index([userId])
+  @@index([storeId])
+  @@map("store_access")
+}
+
+// =============================================================================
+// STORE MANAGEMENT
+// =============================================================================
+
+model Store {
+  id              String      @id @default(uuid())
+  storeCode       String      @unique // e.g., "STR-001"
+  name            String
+  type            StoreType
+  status          StoreStatus @default(ACTIVE)
+
+  // Location
+  address         String
+  city            String
+  state           String?
+  country         String
+  postalCode      String?
+  latitude        Float?
+  longitude       Float?
+
+  // Contact
+  phone           String
+  email           String
+  managerName     String?
+  managerPhone    String?
+
+  // API Configuration (JSON for flexibility)
+  apiConfig       Json // Store connection details, credentials, endpoints
+
+  // Settings
+  timezone        String      @default("UTC")
+  currency        String      @default("USD")
+  taxRate         Float       @default(0)
+
+  // Sync Configuration
+  syncEnabled     Boolean     @default(true)
+  syncInterval    Int         @default(5) // minutes
+  lastSyncAt      DateTime?
+
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  // Relationships
+  storeAccess     StoreAccess[]
+  products        Product[]
+  inventory       Inventory[]
+  sales           Sale[]
+  employees       Employee[]
+  transfersFrom   Transfer[]    @relation("TransferFrom")
+  transfersTo     Transfer[]    @relation("TransferTo")
+  syncLogs        SyncLog[]
+  alerts          Alert[]
+  promotions      StorePromotion[]
+
+  @@index([storeCode])
+  @@index([status])
+  @@index([type])
+  @@map("stores")
+}
+
+// =============================================================================
+// PRODUCT MANAGEMENT (Centralized)
+// =============================================================================
+
+model Product {
+  id              String    @id @default(uuid())
+  storeId         String?   // null = HQ-level product, not yet assigned
+
+  // Basic Info
+  sku             String    @unique
+  barcode         String?
+  name            String
+  description     String?
+  category        String
+  brand           String?
+
+  // Pricing
+  costPrice       Float
+  sellingPrice    Float
+  wholesalePrice  Float?
+
+  // Inventory
+  trackStock      Boolean   @default(true)
+  minStock        Int       @default(0)
+  maxStock        Int?
+  reorderPoint    Int?
+  reorderQuantity Int?
+
+  // Product Details
+  unit            String    @default("pcs") // pcs, kg, liters, etc.
+  weight          Float?
+  dimensions      Json?     // {length, width, height}
+  imageUrl        String?
+  images          Json?     // Array of image URLs
+
+  // Attributes
+  attributes      Json?     // Flexible attributes (color, size, etc.)
+  tags            String[]
+
+  // Status
+  isActive        Boolean   @default(true)
+  taxable         Boolean   @default(true)
+
+  // Sync Info
+  externalId      String?   // ID from store system
+  lastSyncedAt    DateTime?
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  // Relationships
+  store           Store?     @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  inventory       Inventory[]
+  saleItems       SaleItem[]
+  transferItems   TransferItem[]
+  priceHistory    PriceHistory[]
+
+  @@index([sku])
+  @@index([barcode])
+  @@index([storeId])
+  @@index([category])
+  @@map("products")
+}
+
+model PriceHistory {
+  id          String   @id @default(uuid())
+  productId   String
+  oldPrice    Float
+  newPrice    Float
+  changedBy   String
+  reason      String?
+  effectiveAt DateTime @default(now())
+  createdAt   DateTime @default(now())
+
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([productId])
+  @@index([effectiveAt])
+  @@map("price_history")
+}
+
+// =============================================================================
+// INVENTORY MANAGEMENT
+// =============================================================================
+
+model Inventory {
+  id              String    @id @default(uuid())
+  storeId         String
+  productId       String
+
+  quantity        Int       @default(0)
+  reservedQty     Int       @default(0) // For pending transfers
+  availableQty    Int       @default(0) // quantity - reservedQty
+
+  lastStockCount  DateTime?
+  lastRestocked   DateTime?
+
+  // Sync
+  externalId      String?
+  lastSyncedAt    DateTime?
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  store   Store   @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([storeId, productId])
+  @@index([storeId])
+  @@index([productId])
+  @@index([quantity])
+  @@map("inventory")
+}
+
+// =============================================================================
+// SALES TRACKING (Synced from stores)
+// =============================================================================
+
+model Sale {
+  id              String    @id @default(uuid())
+  storeId         String
+
+  // Transaction Info
+  transactionNo   String    @unique
+  saleDate        DateTime
+
+  // Financial
+  subtotal        Float
+  tax             Float     @default(0)
+  discount        Float     @default(0)
+  total           Float
+
+  // Payment
+  paymentMethod   String    // cash, card, mobile, etc.
+  paymentStatus   String    @default("completed")
+
+  // Customer (optional)
+  customerId      String?
+  customerName    String?
+  customerEmail   String?
+
+  // Employee
+  employeeId      String?
+  employeeName    String?
+
+  // Sync
+  externalId      String    // ID from store system
+  lastSyncedAt    DateTime?
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  store     Store      @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  items     SaleItem[]
+
+  @@index([storeId])
+  @@index([saleDate])
+  @@index([transactionNo])
+  @@index([externalId])
+  @@map("sales")
+}
+
+model SaleItem {
+  id          String  @id @default(uuid())
+  saleId      String
+  productId   String
+
+  productName String
+  sku         String
+  quantity    Int
+  unitPrice   Float
+  discount    Float   @default(0)
+  total       Float
+
+  sale    Sale    @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id])
+
+  @@index([saleId])
+  @@index([productId])
+  @@map("sale_items")
+}
+
+// =============================================================================
+// EMPLOYEE MANAGEMENT (Synced from stores)
+// =============================================================================
+
+model Employee {
+  id              String    @id @default(uuid())
+  storeId         String
+
+  // Personal Info
+  employeeCode    String    @unique
+  firstName       String
+  lastName        String
+  email           String?
+  phone           String
+
+  // Employment
+  position        String
+  department      String?
+  hireDate        DateTime
+  terminationDate DateTime?
+
+  // Salary
+  hourlyRate      Float?
+  salary          Float?
+
+  // Status
+  isActive        Boolean   @default(true)
+
+  // Sync
+  externalId      String    // ID from store system
+  lastSyncedAt    DateTime?
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  store Store @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@index([storeId])
+  @@index([employeeCode])
+  @@index([externalId])
+  @@map("employees")
+}
+
+// =============================================================================
+// INTER-STORE TRANSFERS
+// =============================================================================
+
+model Transfer {
+  id              String         @id @default(uuid())
+  transferNo      String         @unique
+
+  fromStoreId     String
+  toStoreId       String
+
+  status          TransferStatus @default(DRAFT)
+
+  // Approval workflow
+  requestedBy     String         // User ID
+  requestedAt     DateTime       @default(now())
+  approvedBy      String?
+  approvedAt      DateTime?
+  completedBy     String?
+  completedAt     DateTime?
+
+  // Financial
+  totalValue      Float
+  shippingCost    Float          @default(0)
+
+  notes           String?
+
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  fromStore Store          @relation("TransferFrom", fields: [fromStoreId], references: [id])
+  toStore   Store          @relation("TransferTo", fields: [toStoreId], references: [id])
+  items     TransferItem[]
+
+  @@index([fromStoreId])
+  @@index([toStoreId])
+  @@index([status])
+  @@index([transferNo])
+  @@map("transfers")
+}
+
+model TransferItem {
+  id          String  @id @default(uuid())
+  transferId  String
+  productId   String
+
+  quantity    Int
+  unitCost    Float
+  totalCost   Float
+
+  transfer Transfer @relation(fields: [transferId], references: [id], onDelete: Cascade)
+  product  Product  @relation(fields: [productId], references: [id])
+
+  @@index([transferId])
+  @@index([productId])
+  @@map("transfer_items")
+}
+
+// =============================================================================
+// PROMOTIONS & PRICE UPDATES
+// =============================================================================
+
+model Promotion {
+  id              String          @id @default(uuid())
+
+  name            String
+  description     String?
+  type            String          // percentage, fixed_amount, buy_x_get_y
+  value           Float           // discount value
+
+  // Conditions
+  minPurchase     Float?
+  maxDiscount     Float?
+  applicableProducts String[]      // Array of product SKUs
+  applicableCategories String[]
+
+  // Schedule
+  startDate       DateTime
+  endDate         DateTime
+  status          PromotionStatus @default(DRAFT)
+
+  // Targeting
+  allStores       Boolean         @default(false)
+
+  createdBy       String
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  stores StorePromotion[]
+
+  @@index([status])
+  @@index([startDate, endDate])
+  @@map("promotions")
+}
+
+model StorePromotion {
+  id          String   @id @default(uuid())
+  promotionId String
+  storeId     String
+  isActive    Boolean  @default(true)
+  pushedAt    DateTime?
+  syncStatus  String   @default("pending") // pending, pushed, active, failed
+
+  promotion Promotion @relation(fields: [promotionId], references: [id], onDelete: Cascade)
+  store     Store     @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@unique([promotionId, storeId])
+  @@index([promotionId])
+  @@index([storeId])
+  @@map("store_promotions")
+}
+
+// =============================================================================
+// SYNC SYSTEM
+// =============================================================================
+
+model SyncLog {
+  id          String     @id @default(uuid())
+  storeId     String
+
+  syncType    String     // products, inventory, sales, employees
+  status      SyncStatus
+
+  startedAt   DateTime   @default(now())
+  completedAt DateTime?
+  duration    Int?       // milliseconds
+
+  recordsTotal    Int    @default(0)
+  recordsSuccess  Int    @default(0)
+  recordsFailed   Int    @default(0)
+
+  errorMessage    String?
+  errorDetails    Json?
+
+  metadata        Json?   // Additional sync info
+
+  store Store @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@index([storeId])
+  @@index([syncType])
+  @@index([status])
+  @@index([startedAt])
+  @@map("sync_logs")
+}
+
+// =============================================================================
+// ALERTS & NOTIFICATIONS
+// =============================================================================
+
+model Alert {
+  id          String        @id @default(uuid())
+  storeId     String?       // null = HQ-level alert
+
+  type        AlertType
+  severity    AlertSeverity
+  title       String
+  message     String
+
+  metadata    Json?         // Additional context
+
+  isRead      Boolean       @default(false)
+  isResolved  Boolean       @default(false)
+  resolvedBy  String?
+  resolvedAt  DateTime?
+
+  createdAt   DateTime      @default(now())
+
+  store Store? @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@index([storeId])
+  @@index([type])
+  @@index([severity])
+  @@index([isRead])
+  @@index([createdAt])
+  @@map("alerts")
+}
+
+model Notification {
+  id        String   @id @default(uuid())
+  userId    String
+
+  title     String
+  message   String
+  type      String   @default("info")
+
+  isRead    Boolean  @default(false)
+  readAt    DateTime?
+
+  actionUrl String?
+  metadata  Json?
+
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([isRead])
+  @@index([createdAt])
+  @@map("notifications")
+}
+
+// =============================================================================
+// AUDIT & LOGGING
+// =============================================================================
+
+model AuditLog {
+  id          String   @id @default(uuid())
+  userId      String?
+
+  action      String   // CREATE, UPDATE, DELETE, etc.
+  entity      String   // User, Product, Store, etc.
+  entityId    String
+
+  changes     Json?    // Before/after values
+  metadata    Json?
+
+  ipAddress   String?
+  userAgent   String?
+
+  createdAt   DateTime @default(now())
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([entity])
+  @@index([action])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
+// =============================================================================
+// ANALYTICS & REPORTING (Pre-computed metrics)
+// =============================================================================
+
+model DailySummary {
+  id              String   @id @default(uuid())
+  storeId         String
+  date            DateTime @db.Date
+
+  // Sales Metrics
+  totalSales      Float    @default(0)
+  totalTransactions Int    @default(0)
+  averageTransaction Float  @default(0)
+
+  // Product Metrics
+  totalItemsSold  Int      @default(0)
+  topProducts     Json?    // Array of {productId, quantity, revenue}
+
+  // Employee Metrics
+  activeEmployees Int      @default(0)
+
+  // Inventory
+  lowStockCount   Int      @default(0)
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([storeId, date])
+  @@index([storeId])
+  @@index([date])
+  @@map("daily_summaries")
+}
