@@ -1,0 +1,861 @@
+// Multi-Store Retail Management Platform - Database Schema
+// Supports multi-tenancy, offline sync, audit logging
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================
+// AUTHENTICATION & USER MANAGEMENT
+// ============================================
+
+model User {
+  id            String    @id @default(uuid())
+  email         String    @unique
+  passwordHash  String
+  firstName     String
+  lastName      String
+  phone         String?
+  role          UserRole  @default(CASHIER)
+  isActive      Boolean   @default(true)
+  lastLoginAt   DateTime?
+
+  // Multi-store assignment
+  storeId       String?
+  store         Store?    @relation(fields: [storeId], references: [id])
+
+  // Relations
+  refreshTokens RefreshToken[]
+  shifts        Shift[]
+  transactions  Transaction[]
+  activities    AuditLog[]
+  expenses      Expense[]
+
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([email])
+  @@index([storeId])
+  @@map("users")
+}
+
+enum UserRole {
+  SUPER_ADMIN  // HQ administrator
+  ADMIN        // Store manager
+  MANAGER      // Assistant manager
+  CASHIER      // POS operator
+  INVENTORY    // Inventory manager
+  ACCOUNTANT   // Financial access
+}
+
+model RefreshToken {
+  id        String   @id @default(uuid())
+  token     String   @unique
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  isRevoked Boolean  @default(false)
+
+  createdAt DateTime @default(now())
+
+  @@index([token])
+  @@index([userId])
+  @@map("refresh_tokens")
+}
+
+// ============================================
+// STORE MANAGEMENT
+// ============================================
+
+model Store {
+  id              String   @id @default(uuid())
+  code            String   @unique
+  name            String
+  address         String
+  city            String
+  state           String
+  zipCode         String
+  country         String
+  phone           String
+  email           String
+
+  // Settings
+  taxRate         Float    @default(0)
+  currency        String   @default("USD")
+  timezone        String   @default("UTC")
+  isActive        Boolean  @default(true)
+
+  // Features
+  enableInventory Boolean  @default(true)
+  enablePOS       Boolean  @default(true)
+  enableReporting Boolean  @default(true)
+
+  // Relations
+  users           User[]
+  products        StoreProduct[]
+  inventory       InventoryItem[]
+  transactions    Transaction[]
+  shifts          Shift[]
+  expenses        Expense[]
+  transfersOut    StockTransfer[] @relation("TransferFrom")
+  transfersIn     StockTransfer[] @relation("TransferTo")
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([code])
+  @@index([isActive])
+  @@map("stores")
+}
+
+// ============================================
+// PRODUCT CATALOG (Master)
+// ============================================
+
+model Category {
+  id          String    @id @default(uuid())
+  name        String
+  description String?
+  parentId    String?
+  parent      Category? @relation("CategoryHierarchy", fields: [parentId], references: [id])
+  children    Category[] @relation("CategoryHierarchy")
+
+  products    Product[]
+
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([parentId])
+  @@map("categories")
+}
+
+model Product {
+  id              String   @id @default(uuid())
+  sku             String   @unique
+  barcode         String?  @unique
+  name            String
+  description     String?
+
+  // Categorization
+  categoryId      String
+  category        Category @relation(fields: [categoryId], references: [id])
+
+  // Pricing (master price)
+  basePrice       Float
+  costPrice       Float
+
+  // Product details
+  unit            String   @default("pcs")
+  weight          Float?
+  dimensions      String?
+
+  // Variants support
+  hasVariants     Boolean  @default(false)
+  variants        ProductVariant[]
+
+  // Tracking
+  trackInventory  Boolean  @default(true)
+  enableBatches   Boolean  @default(false)
+  expiryEnabled   Boolean  @default(false)
+
+  // Tax & Discount
+  taxable         Boolean  @default(true)
+  discountable    Boolean  @default(true)
+
+  // Status
+  isActive        Boolean  @default(true)
+
+  // Relations
+  storeProducts   StoreProduct[]
+  inventoryItems  InventoryItem[]
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([sku])
+  @@index([barcode])
+  @@index([categoryId])
+  @@map("products")
+}
+
+model ProductVariant {
+  id          String   @id @default(uuid())
+  productId   String
+  product     Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  name        String   // e.g., "Size: Large, Color: Red"
+  sku         String   @unique
+  barcode     String?  @unique
+
+  // Price override
+  priceAdjustment Float @default(0)
+
+  // Attributes (JSON)
+  attributes  Json     // { "size": "L", "color": "red" }
+
+  isActive    Boolean  @default(true)
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([productId])
+  @@index([sku])
+  @@map("product_variants")
+}
+
+// Store-specific product configuration
+model StoreProduct {
+  id              String   @id @default(uuid())
+  storeId         String
+  store           Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  productId       String
+  product         Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  // Store-specific pricing
+  price           Float
+  compareAtPrice  Float?
+
+  // Store visibility
+  isVisible       Boolean  @default(true)
+  isAvailable     Boolean  @default(true)
+
+  // Reorder settings
+  minStock        Float    @default(0)
+  maxStock        Float?
+  reorderPoint    Float?
+  reorderQty      Float?
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([storeId, productId])
+  @@index([storeId])
+  @@index([productId])
+  @@map("store_products")
+}
+
+// ============================================
+// INVENTORY MANAGEMENT
+// ============================================
+
+model InventoryItem {
+  id              String   @id @default(uuid())
+  storeId         String
+  store           Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  productId       String
+  product         Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  // Stock levels
+  quantity        Float    @default(0)
+  reserved        Float    @default(0)  // Reserved for orders
+  available       Float    @default(0)  // quantity - reserved
+
+  // Batch tracking
+  batchNumber     String?
+  expiryDate      DateTime?
+
+  // Valuation
+  costPrice       Float
+  totalValue      Float    @default(0)
+
+  // Last updated
+  lastStockTake   DateTime?
+  lastSyncedAt    DateTime?
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([storeId, productId, batchNumber])
+  @@index([storeId])
+  @@index([productId])
+  @@index([expiryDate])
+  @@map("inventory_items")
+}
+
+model StockAdjustment {
+  id            String   @id @default(uuid())
+  storeId       String
+  productId     String
+
+  type          AdjustmentType
+  quantity      Float
+  reason        String
+  notes         String?
+
+  // Before/After
+  quantityBefore Float
+  quantityAfter  Float
+
+  userId        String
+
+  createdAt     DateTime @default(now())
+
+  @@index([storeId])
+  @@index([productId])
+  @@index([type])
+  @@map("stock_adjustments")
+}
+
+enum AdjustmentType {
+  DAMAGE
+  LOSS
+  THEFT
+  FOUND
+  CORRECTION
+  WASTAGE
+  RETURN_TO_SUPPLIER
+  OTHER
+}
+
+model StockTransfer {
+  id              String   @id @default(uuid())
+  transferNumber  String   @unique
+
+  fromStoreId     String
+  fromStore       Store    @relation("TransferFrom", fields: [fromStoreId], references: [id])
+  toStoreId       String
+  toStore         Store    @relation("TransferTo", fields: [toStoreId], references: [id])
+
+  status          TransferStatus @default(PENDING)
+
+  items           TransferItem[]
+
+  requestedBy     String
+  approvedBy      String?
+  receivedBy      String?
+
+  notes           String?
+
+  requestedAt     DateTime @default(now())
+  approvedAt      DateTime?
+  shippedAt       DateTime?
+  receivedAt      DateTime?
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([transferNumber])
+  @@index([fromStoreId])
+  @@index([toStoreId])
+  @@index([status])
+  @@map("stock_transfers")
+}
+
+enum TransferStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  SHIPPED
+  RECEIVED
+  CANCELLED
+}
+
+model TransferItem {
+  id              String   @id @default(uuid())
+  transferId      String
+  transfer        StockTransfer @relation(fields: [transferId], references: [id], onDelete: Cascade)
+  productId       String
+
+  quantityRequested Float
+  quantityShipped   Float?
+  quantityReceived  Float?
+
+  notes           String?
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([transferId])
+  @@index([productId])
+  @@map("transfer_items")
+}
+
+// ============================================
+// SUPPLIERS & PURCHASING
+// ============================================
+
+model Supplier {
+  id            String   @id @default(uuid())
+  code          String   @unique
+  name          String
+  contactPerson String?
+  email         String?
+  phone         String
+  address       String?
+  city          String?
+  country       String?
+
+  // Payment terms
+  paymentTerms  String?
+  creditLimit   Float    @default(0)
+
+  isActive      Boolean  @default(true)
+
+  purchaseOrders PurchaseOrder[]
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([code])
+  @@map("suppliers")
+}
+
+model PurchaseOrder {
+  id              String   @id @default(uuid())
+  poNumber        String   @unique
+
+  supplierId      String
+  supplier        Supplier @relation(fields: [supplierId], references: [id])
+  storeId         String
+
+  status          POStatus @default(DRAFT)
+
+  // Totals
+  subtotal        Float    @default(0)
+  taxAmount       Float    @default(0)
+  shippingCost    Float    @default(0)
+  totalAmount     Float    @default(0)
+
+  items           PurchaseOrderItem[]
+
+  notes           String?
+
+  orderedBy       String
+  approvedBy      String?
+
+  orderedAt       DateTime @default(now())
+  expectedAt      DateTime?
+  receivedAt      DateTime?
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([poNumber])
+  @@index([supplierId])
+  @@index([storeId])
+  @@index([status])
+  @@map("purchase_orders")
+}
+
+enum POStatus {
+  DRAFT
+  PENDING
+  APPROVED
+  ORDERED
+  PARTIALLY_RECEIVED
+  RECEIVED
+  CANCELLED
+}
+
+model PurchaseOrderItem {
+  id              String   @id @default(uuid())
+  poId            String
+  purchaseOrder   PurchaseOrder @relation(fields: [poId], references: [id], onDelete: Cascade)
+  productId       String
+
+  quantity        Float
+  receivedQty     Float    @default(0)
+  unitPrice       Float
+  taxRate         Float    @default(0)
+  totalPrice      Float
+
+  batchNumber     String?
+  expiryDate      DateTime?
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([poId])
+  @@index([productId])
+  @@map("purchase_order_items")
+}
+
+// ============================================
+// SALES & TRANSACTIONS (POS)
+// ============================================
+
+model Transaction {
+  id              String   @id @default(uuid())
+  transactionNumber String @unique
+
+  storeId         String
+  store           Store    @relation(fields: [storeId], references: [id])
+
+  type            TransactionType @default(SALE)
+
+  // Customer
+  customerId      String?
+  customer        Customer? @relation(fields: [customerId], references: [id])
+
+  // Cashier
+  userId          String
+  user            User     @relation(fields: [userId], references: [id])
+
+  // Shift
+  shiftId         String?
+  shift           Shift?   @relation(fields: [shiftId], references: [id])
+
+  // Items
+  items           TransactionItem[]
+
+  // Amounts
+  subtotal        Float
+  taxAmount       Float
+  discountAmount  Float    @default(0)
+  totalAmount     Float
+
+  // Payment
+  payments        Payment[]
+  paidAmount      Float    @default(0)
+  changeAmount    Float    @default(0)
+
+  // Status
+  status          TransactionStatus @default(COMPLETED)
+
+  // Notes
+  notes           String?
+
+  // Sync tracking
+  syncedAt        DateTime?
+  syncStatus      SyncStatus @default(PENDING)
+
+  // Original transaction for returns
+  originalTransactionId String?
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([transactionNumber])
+  @@index([storeId])
+  @@index([customerId])
+  @@index([userId])
+  @@index([shiftId])
+  @@index([status])
+  @@index([syncStatus])
+  @@index([createdAt])
+  @@map("transactions")
+}
+
+enum TransactionType {
+  SALE
+  RETURN
+  EXCHANGE
+  VOID
+}
+
+enum TransactionStatus {
+  PENDING
+  COMPLETED
+  CANCELLED
+  REFUNDED
+}
+
+enum SyncStatus {
+  PENDING
+  SYNCED
+  FAILED
+  CONFLICT
+}
+
+model TransactionItem {
+  id              String   @id @default(uuid())
+  transactionId   String
+  transaction     Transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+
+  productId       String
+  productName     String   // Snapshot
+  productSku      String   // Snapshot
+
+  variantId       String?
+
+  quantity        Float
+  unitPrice       Float
+  taxRate         Float
+  discountPercent Float    @default(0)
+  discountAmount  Float    @default(0)
+  totalPrice      Float
+
+  createdAt       DateTime @default(now())
+
+  @@index([transactionId])
+  @@index([productId])
+  @@map("transaction_items")
+}
+
+model Payment {
+  id              String   @id @default(uuid())
+  transactionId   String
+  transaction     Transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+
+  method          PaymentMethod
+  amount          Float
+
+  // Card/Digital payment details
+  referenceNumber String?
+  cardLast4       String?
+
+  status          PaymentStatus @default(COMPLETED)
+
+  createdAt       DateTime @default(now())
+
+  @@index([transactionId])
+  @@index([method])
+  @@map("payments")
+}
+
+enum PaymentMethod {
+  CASH
+  CARD
+  DEBIT_CARD
+  CREDIT_CARD
+  MOBILE_WALLET
+  BANK_TRANSFER
+  CHECK
+  GIFT_CARD
+  STORE_CREDIT
+  OTHER
+}
+
+enum PaymentStatus {
+  PENDING
+  COMPLETED
+  FAILED
+  REFUNDED
+}
+
+// ============================================
+// CUSTOMER MANAGEMENT
+// ============================================
+
+model Customer {
+  id              String   @id @default(uuid())
+  code            String   @unique
+  firstName       String
+  lastName        String
+  email           String?  @unique
+  phone           String   @unique
+
+  address         String?
+  city            String?
+  zipCode         String?
+
+  // Loyalty
+  loyaltyPoints   Int      @default(0)
+  loyaltyTier     String?
+
+  // Stats
+  totalSpent      Float    @default(0)
+  totalVisits     Int      @default(0)
+  lastVisitAt     DateTime?
+
+  isActive        Boolean  @default(true)
+
+  transactions    Transaction[]
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([code])
+  @@index([email])
+  @@index([phone])
+  @@map("customers")
+}
+
+// ============================================
+// SHIFT & CASH DRAWER MANAGEMENT
+// ============================================
+
+model Shift {
+  id              String   @id @default(uuid())
+  shiftNumber     String   @unique
+
+  storeId         String
+  store           Store    @relation(fields: [storeId], references: [id])
+
+  userId          String
+  user            User     @relation(fields: [userId], references: [id])
+
+  // Cash management
+  openingCash     Float
+  closingCash     Float?
+
+  expectedCash    Float?
+  actualCash      Float?
+  variance        Float?
+
+  // Shift times
+  startedAt       DateTime @default(now())
+  endedAt         DateTime?
+
+  // Summary
+  totalSales      Float    @default(0)
+  totalTransactions Int    @default(0)
+
+  status          ShiftStatus @default(OPEN)
+
+  transactions    Transaction[]
+  cashDrawerEvents CashDrawerEvent[]
+
+  notes           String?
+
+  @@index([shiftNumber])
+  @@index([storeId])
+  @@index([userId])
+  @@index([status])
+  @@map("shifts")
+}
+
+enum ShiftStatus {
+  OPEN
+  CLOSED
+  RECONCILED
+}
+
+model CashDrawerEvent {
+  id          String   @id @default(uuid())
+  shiftId     String
+  shift       Shift    @relation(fields: [shiftId], references: [id], onDelete: Cascade)
+
+  type        DrawerEventType
+  amount      Float
+  reason      String
+  notes       String?
+
+  createdAt   DateTime @default(now())
+
+  @@index([shiftId])
+  @@index([type])
+  @@map("cash_drawer_events")
+}
+
+enum DrawerEventType {
+  CASH_IN
+  CASH_OUT
+  BANK_DEPOSIT
+  PETTY_CASH
+}
+
+// ============================================
+// FINANCE & EXPENSES
+// ============================================
+
+model Expense {
+  id          String   @id @default(uuid())
+  storeId     String
+  store       Store    @relation(fields: [storeId], references: [id])
+
+  category    ExpenseCategory
+  amount      Float
+  description String
+  notes       String?
+
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+
+  // Attachment
+  receiptUrl  String?
+
+  date        DateTime @default(now())
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([storeId])
+  @@index([category])
+  @@index([date])
+  @@map("expenses")
+}
+
+enum ExpenseCategory {
+  RENT
+  UTILITIES
+  SALARIES
+  SUPPLIES
+  MARKETING
+  MAINTENANCE
+  INSURANCE
+  TRANSPORT
+  PETTY_CASH
+  OTHER
+}
+
+// ============================================
+// SYNC QUEUE (Offline-First Support)
+// ============================================
+
+model SyncQueue {
+  id          String   @id @default(uuid())
+  storeId     String
+
+  entityType  String   // "transaction", "inventory", "expense"
+  entityId    String
+  operation   SyncOperation
+
+  payload     Json
+
+  status      SyncStatus @default(PENDING)
+  attempts    Int      @default(0)
+  lastError   String?
+
+  priority    Int      @default(0)
+
+  createdAt   DateTime @default(now())
+  syncedAt    DateTime?
+
+  @@index([storeId])
+  @@index([status])
+  @@index([entityType])
+  @@index([priority])
+  @@map("sync_queue")
+}
+
+enum SyncOperation {
+  CREATE
+  UPDATE
+  DELETE
+}
+
+// ============================================
+// AUDIT LOGGING
+// ============================================
+
+model AuditLog {
+  id          String   @id @default(uuid())
+  userId      String?
+  user        User?    @relation(fields: [userId], references: [id])
+
+  action      String
+  entityType  String
+  entityId    String?
+
+  changes     Json?
+  ipAddress   String?
+  userAgent   String?
+
+  createdAt   DateTime @default(now())
+
+  @@index([userId])
+  @@index([entityType])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
+// ============================================
+// SETTINGS & CONFIGURATIONS
+// ============================================
+
+model SystemSetting {
+  id          String   @id @default(uuid())
+  key         String   @unique
+  value       Json
+  description String?
+
+  updatedAt   DateTime @updatedAt
+
+  @@map("system_settings")
+}
