@@ -26,6 +26,7 @@ import { FinancialReports } from './components/FinancialReports';
 import { ToastContainer } from './components/Toast';
 import { Sidebar } from './components/Sidebar';
 import { Header } from './components/Header';
+import HQDashboard from './components/HQDashboard';
 import { User, Store, Permission } from './types';
 import { ROLE_PERMISSIONS } from './utils/permissions';
 import { useToast } from './hooks/useToast';
@@ -141,6 +142,8 @@ function App() {
 
   const renderCurrentView = () => {
     switch (currentView) {
+      case 'hq-dashboard':
+        return <HQDashboard />;
       case 'dashboard':
         // Show AdminDashboard for admin users, regular Dashboard for others
         if (currentUser.role === 'admin') {

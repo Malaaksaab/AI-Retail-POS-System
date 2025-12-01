@@ -37,10 +37,18 @@ interface SidebarProps {
 }
 
 const menuItems = [
-  { 
-    id: 'dashboard', 
-    label: 'Dashboard', 
-    icon: LayoutDashboard, 
+  {
+    id: 'hq-dashboard',
+    label: '🏢 HQ Dashboard',
+    icon: Store,
+    permission: PERMISSIONS.DASHBOARD_VIEW,
+    category: 'main',
+    highlight: true
+  },
+  {
+    id: 'dashboard',
+    label: 'Store Dashboard',
+    icon: LayoutDashboard,
     permission: PERMISSIONS.DASHBOARD_VIEW,
     category: 'main'
   },
